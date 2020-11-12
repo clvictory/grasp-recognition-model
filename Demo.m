@@ -7,9 +7,6 @@ digitDatasetPath = 'trainDataRGB';
 imds = imageDatastore(digitDatasetPath, ...
     'IncludeSubfolders',true,'LabelSource','foldernames');
 
-% divide the data into training, validation and testing set
-[imdsTrain,imdsValidation,imdsTest] = splitEachLabel(imds,0.6,0.1,0.3,'randomize');
-
 % image augmentation
 imageAugmenter = imageDataAugmenter( ...
     'RandRotation',[-20,20], ...
@@ -17,7 +14,6 @@ imageAugmenter = imageDataAugmenter( ...
     'RandYTranslation',[-3 3]);
 
 imageSize = [24 24 3];
-augimds = augmentedImageDatastore(imageSize,imds,'DataAugmentation',imageAugmenter);
 
 % model architecture
 layers = [
@@ -38,29 +34,37 @@ layers = [
     convolution2dLayer(3,32,'Padding','same')
     batchNormalizationLayer
     reluLayer
-       
+    
     fullyConnectedLayer(100)
     fullyConnectedLayer(2)
     softmaxLayer
     classificationLayer];
 
-% training options
-options = trainingOptions('sgdm', ...
-    'MaxEpochs',10, ...
-    'ValidationData',imdsValidation, ...
-    'LearnRateSchedule','piecewise',...
-    'LearnRateDropFactor',0.2,...
-    'LearnRateDropPeriod',3,...
-    'ValidationFrequency',30, ...
-    'Verbose',false, ...
-    'Plots','training-progress');
+loop_num = 5;
+accuracy_list = zeros(1,loop_num);
+for i = 1:loop_num
+    % divide the data into training, validation and testing set
+    [imdsTrain,imdsValid,imdsTest] = splitEachLabel(imds,0.6,0.1,0.3,'randomize');
+    
+    augimds = augmentedImageDatastore(imageSize,imds,'DataAugmentation',imageAugmenter);
+    
+    % training options
+    options = trainingOptions('sgdm', ...
+        'MaxEpochs',10, ...
+        'ValidationData',imdsValid, ...
+        'LearnRateSchedule','piecewise',...
+        'LearnRateDropFactor',0.2,...
+        'LearnRateDropPeriod',3,...
+        'ValidationFrequency',30, ...
+        'Verbose',false);
+    
+    % calculating accuracy on testing set
+    [graspNet,trainInfo] = trainNetwork(imdsTrain,layers,options);
+    YPred = classify(graspNet,imdsTest);
+    YTest = imdsTest.Labels;
+    accuracy = sum(YPred == YTest)/numel(YTest);
+    accuracy_list(i) = accuracy;
+    fprintf('Accuracy on testing set for loop %d is: %.1f%%\n',i,accuracy*100);
+end
 
-% calculating accuracy on testing set
-[graspNet,trainInfo] = trainNetwork(augimds,layers,options);
-YPred = classify(graspNet,imdsTest);
-YTest = imdsTest.Labels;
-accuracy = sum(YPred == YTest)/numel(YTest);
-fprintf('Accuracy on testing set is: %.1f%%\n',accuracy*100);
-
-% confusion matrix
-% plotconfusion(YTest,YPred);
+fprintf('Average accuracy is: %.1f%%\n',mean(accuracy_list)*100);
